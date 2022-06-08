@@ -1,0 +1,97 @@
+stages:
+  # CI pipeline
+  # 一般開發流程
+  # test 測試過了 -> 
+  #   merge 進 stage/master -> 
+  #   build 建立 docker image ->
+  #   deploy 部屬服務
+  # 會根據此順序依序進行
+  # test -> build -> deploy
+  - test
+  - build
+  - deploy
+
+# CI 名稱，test 步驟
+test-crawler: 
+    # 在 stage 設定 CI pipeline 順序
+    # 這裡 pipeline 步驟是 test
+    stage: test
+    # 運行測試的 docker image
+    # 由於我們 Dockerfile 基於
+    # continuumio/miniconda3:4.3.27 下去做設定
+    # 因此這裡測試也使用同樣的 image
+    image: continuumio/miniconda3:4.3.27
+    before_script:
+      # 測試事前準備的指令
+      # 需要先安裝環境
+      - pip install pipenv
+      - pipenv sync
+      - python3 genenv.py
+    script:
+      # 實際測試指令
+      - pipenv run pytest --cov-report term-missing --cov-config=.coveragerc --cov=./financialdata/ tests/
+    only:
+        # 設定只有在 merge requests 的情況下
+        # 才會運作此 CI
+        refs:
+          - merge_requests
+
+# CI 名稱, 建立 docker image
+build-docker-image:
+    # 在 stage 設定 CI pipeline 順序
+    # 這裡 pipeline 步驟是 build
+    stage: build
+    before_script:
+      # 由於 build 好 image 後，需要 push 到 docker hub
+      # 需要事先登入
+      # 登入部分，這裡使用 token 做登入，可參考以下連結
+      # https://docs.docker.com/docker-hub/access-tokens/#create-an-access-token
+      # token 你可以使用明碼，或是存入 gitlab CICD Variables，用變數的方式引用
+      # 如下
+      # docker login -u "linsamtw" -p 7777-7777-7777-7777
+      # 但實務上，我們不希望 token 公開，因此會採用以下方式
+      - docker login -u "linsamtw" -p ${DOCKER_HUB_TOKEN}
+    script: 
+      # 建立 image
+      - make build-image
+      # push
+      - make push-image
+    tags:
+      # 設定使用前面建立的 runner 執行
+      - build_image
+    only:
+      # 設定只有在下 tag 後
+      # 才會 build image
+      - tags 
+
+# CI 名稱, deploy crawler 
+deploy-crawler:
+    # 在 stage 設定 CI pipeline 順序
+    # 這裡 pipeline 步驟是 deply
+    stage: deploy
+    script:
+      # 部屬爬蟲
+      - make deploy-crawler
+    tags:
+      # 設定使用前面建立的 runner 執行
+      - build_image
+    only:
+      # 設定只有在下 tag 後
+      # 才會 deploy
+      - tags 
+
+# CI 名稱, deploy crawler 
+deploy-scheduler:
+    # 在 stage 設定 CI pipeline 順序
+    # 這裡 pipeline 步驟是 deply
+    stage: deploy
+    script:
+      # 部屬爬蟲 scheduler
+      - make deploy-scheduler
+    tags:
+      # 設定使用前面建立的 runner 執行
+      - build_image
+    only:
+      # 設定只有在下 tag 後
+      # 才會 deploy
+      - tags 
